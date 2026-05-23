@@ -120,6 +120,7 @@ function setStudentProfilePic(studentId, data) {
 
 function getStudentAvatarDisplay(student) {
   if (!student || !student.id) return '<span style="font-size:24px;">👤</span>';
+  
   const pic = localStorage.getItem(`profile_pic_${student.id}`);
   if (pic && pic.startsWith('data:image')) {
     return `<img src="${pic}" style="width:100%;height:100%;border-radius:50%;object-fit:cover;">`;
@@ -129,7 +130,7 @@ function getStudentAvatarDisplay(student) {
     const avatar = STUDENT_AVATARS.find(a => a.id === avatarId);
     if (avatar) return `<span style="font-size:24px;">${avatar.emoji}</span>`;
   }
-  return `<span style="font-size:24px;">${student.name?.charAt(0).toUpperCase() || '?'}</span>`;
+  return `<span style="font-size:24px;">${student.name?.charAt(0).toUpperCase() || '?'}</span>';
 }
 
 /* ─── Banner Functions ──────────────────────────────────────────── */
@@ -194,16 +195,15 @@ function calculateAchievements(attendanceRecords) {
 
 /* ─── Birthday Functions ────────────────────────────────────────── */
 function checkBirthdays(students) {
-  if (!students || students.length === 0) return false;
+  if (!students || !Array.isArray(students) || students.length === 0) return false;
+  
   const today = new Date();
   const todayStr = `${today.getMonth() + 1}-${today.getDate()}`;
   
   for (const student of students) {
-    if (student && student.birthday) {
-      if (student.birthday === todayStr) {
-        showBirthdayModal(student.name);
-        return true;
-      }
+    if (student && student.birthday && student.birthday === todayStr) {
+      showBirthdayModal(student.name);
+      return true;
     }
   }
   return false;
@@ -224,217 +224,150 @@ let currentUser = null;
 let currentPage = 'attendance';
 let currentDate = todayStr();
 let currentClassId = 1;
-let students = [];
-let chatUnsubscribe = null;
 
 /* ─── LocalStorage DB ───────────────────────────────────────────── */
-const db = {
-  initData() {
-    if (!localStorage.getItem('students')) {
-      localStorage.setItem('students', JSON.stringify([
-        { id: 1, name: 'Emma Johnson', grade: '3rd Grade', notes: '', birthday: '3-15' },
-        { id: 2, name: 'Liam Smith', grade: '3rd Grade', notes: '', birthday: '7-22' },
-        { id: 3, name: 'Sophia Brown', grade: '3rd Grade', notes: '', birthday: '11-5' },
-      ]));
-    }
-    if (!localStorage.getItem('attendance')) {
-      localStorage.setItem('attendance', JSON.stringify([]));
-    }
-    if (!localStorage.getItem('classes')) {
-      localStorage.setItem('classes', JSON.stringify([
-        { id: 1, name: 'My Class', schoolName: 'My School', grade: '3rd Grade', classCode: 'ABC123' }
-      ]));
-    }
-    if (!localStorage.getItem('users')) {
-      localStorage.setItem('users', JSON.stringify([
-        { username: 'teacher', password: '123', role: 'teacher', name: 'Ms. Johnson' },
-        { username: 'student', password: '123', role: 'student', studentId: 1, name: 'Emma Johnson' }
-      ]));
-    }
-  },
-  
-  getStudents() { return JSON.parse(localStorage.getItem('students') || '[]'); },
-  addStudent(s) { 
-    const students = this.getStudents();
-    const newStudent = { ...s, id: Date.now() };
-    students.push(newStudent);
+function initData() {
+  if (!localStorage.getItem('students')) {
+    localStorage.setItem('students', JSON.stringify([
+      { id: 1, name: 'Emma Johnson', grade: '3rd Grade', notes: '', birthday: '3-15' },
+      { id: 2, name: 'Liam Smith', grade: '3rd Grade', notes: '', birthday: '7-22' },
+      { id: 3, name: 'Sophia Brown', grade: '3rd Grade', notes: '', birthday: '11-5' },
+    ]));
+  }
+  if (!localStorage.getItem('attendance')) {
+    localStorage.setItem('attendance', JSON.stringify([]));
+  }
+  if (!localStorage.getItem('classes')) {
+    localStorage.setItem('classes', JSON.stringify([
+      { id: 1, name: 'My Class', schoolName: 'My School', grade: '3rd Grade', classCode: 'ABC123' }
+    ]));
+  }
+  if (!localStorage.getItem('users')) {
+    localStorage.setItem('users', JSON.stringify([
+      { username: 'teacher', password: '123', role: 'teacher', name: 'Ms. Johnson' },
+      { username: 'student', password: '123', role: 'student', studentId: 1, name: 'Emma Johnson' }
+    ]));
+  }
+}
+
+function getStudents() { 
+  return JSON.parse(localStorage.getItem('students') || '[]'); 
+}
+
+function addStudent(student) { 
+  const students = getStudents();
+  const newStudent = { ...student, id: Date.now() };
+  students.push(newStudent);
+  localStorage.setItem('students', JSON.stringify(students));
+  return newStudent;
+}
+
+function updateStudent(id, data) {
+  const students = getStudents();
+  const index = students.findIndex(s => s.id === id);
+  if (index !== -1) {
+    students[index] = { ...students[index], ...data };
     localStorage.setItem('students', JSON.stringify(students));
-    return newStudent;
-  },
-  updateStudent(id, data) {
-    const students = this.getStudents();
-    const index = students.findIndex(s => s.id === id);
-    if (index !== -1) {
-      students[index] = { ...students[index], ...data };
-      localStorage.setItem('students', JSON.stringify(students));
-      return students[index];
-    }
-    return null;
-  },
-  deleteStudent(id) {
-    let students = this.getStudents();
-    students = students.filter(s => s.id !== id);
-    localStorage.setItem('students', JSON.stringify(students));
-    let attendance = JSON.parse(localStorage.getItem('attendance') || '[]');
-    attendance = attendance.filter(a => a.studentId !== id);
-    localStorage.setItem('attendance', JSON.stringify(attendance));
-  },
-  getAttendance(date, studentId) {
-    let attendance = JSON.parse(localStorage.getItem('attendance') || '[]');
-    if (date) attendance = attendance.filter(a => a.date === date);
-    if (studentId) attendance = attendance.filter(a => a.studentId === studentId);
-    return attendance;
-  },
-  saveAttendance(record) {
-    const attendance = JSON.parse(localStorage.getItem('attendance') || '[]');
-    const existingIndex = attendance.findIndex(a => a.studentId === record.studentId && a.date === record.date);
-    if (existingIndex !== -1) {
-      attendance[existingIndex] = { ...attendance[existingIndex], ...record };
-    } else {
-      attendance.push({ ...record, id: Date.now() });
-    }
-    localStorage.setItem('attendance', JSON.stringify(attendance));
-    return record;
-  },
-  getClasses() { return JSON.parse(localStorage.getItem('classes') || '[]'); },
-  addClass(cls) {
-    const classes = this.getClasses();
-    const newClass = { ...cls, id: Date.now(), classCode: generateClassCode() };
-    classes.push(newClass);
+    return students[index];
+  }
+  return null;
+}
+
+function deleteStudent(id) {
+  let students = getStudents();
+  students = students.filter(s => s.id !== id);
+  localStorage.setItem('students', JSON.stringify(students));
+  let attendance = JSON.parse(localStorage.getItem('attendance') || '[]');
+  attendance = attendance.filter(a => a.studentId !== id);
+  localStorage.setItem('attendance', JSON.stringify(attendance));
+}
+
+function getAttendance(date, studentId) {
+  let attendance = JSON.parse(localStorage.getItem('attendance') || '[]');
+  if (date) attendance = attendance.filter(a => a.date === date);
+  if (studentId) attendance = attendance.filter(a => a.studentId === studentId);
+  return attendance;
+}
+
+function saveAttendance(record) {
+  const attendance = JSON.parse(localStorage.getItem('attendance') || '[]');
+  const existingIndex = attendance.findIndex(a => a.studentId === record.studentId && a.date === record.date);
+  if (existingIndex !== -1) {
+    attendance[existingIndex] = { ...attendance[existingIndex], ...record };
+  } else {
+    attendance.push({ ...record, id: Date.now() });
+  }
+  localStorage.setItem('attendance', JSON.stringify(attendance));
+  return record;
+}
+
+function getClasses() { 
+  return JSON.parse(localStorage.getItem('classes') || '[]'); 
+}
+
+function addClass(cls) {
+  const classes = getClasses();
+  const newClass = { ...cls, id: Date.now(), classCode: generateClassCode() };
+  classes.push(newClass);
+  localStorage.setItem('classes', JSON.stringify(classes));
+  return newClass;
+}
+
+function updateClass(id, data) {
+  const classes = getClasses();
+  const index = classes.findIndex(c => c.id === id);
+  if (index !== -1) {
+    classes[index] = { ...classes[index], ...data };
     localStorage.setItem('classes', JSON.stringify(classes));
-    return newClass;
-  },
-  updateClass(id, data) {
-    const classes = this.getClasses();
-    const index = classes.findIndex(c => c.id === id);
-    if (index !== -1) {
-      classes[index] = { ...classes[index], ...data };
-      localStorage.setItem('classes', JSON.stringify(classes));
-      return classes[index];
+    return classes[index];
+  }
+  return null;
+}
+
+function deleteClass(id) {
+  let classes = getClasses();
+  classes = classes.filter(c => c.id !== id);
+  localStorage.setItem('classes', JSON.stringify(classes));
+}
+
+function getClassByCode(code) {
+  const classes = getClasses();
+  return classes.find(c => c.classCode === code);
+}
+
+function getAttendanceSummary() {
+  const students = getStudents();
+  const attendance = JSON.parse(localStorage.getItem('attendance') || '[]');
+  return students.map(student => {
+    const studentRecords = attendance.filter(a => a.studentId === student.id);
+    const present = studentRecords.filter(r => r.status === 'present').length;
+    const absent = studentRecords.filter(r => r.status === 'absent').length;
+    const late = studentRecords.filter(r => r.status === 'late').length;
+    return {
+      studentId: student.id,
+      studentName: student.name,
+      present, absent, late,
+      total: studentRecords.length
+    };
+  });
+}
+
+function updateUserName(userId, newName) {
+  const users = JSON.parse(localStorage.getItem('users') || '[]');
+  const index = users.findIndex(u => u.username === userId || u.studentId === userId);
+  if (index !== -1) {
+    users[index].name = newName;
+    localStorage.setItem('users', JSON.stringify(users));
+    
+    if (users[index].role === 'student' && users[index].studentId) {
+      updateStudent(users[index].studentId, { name: newName });
     }
-    return null;
-  },
-  deleteClass(id) {
-    let classes = this.getClasses();
-    classes = classes.filter(c => c.id !== id);
-    localStorage.setItem('classes', JSON.stringify(classes));
-  },
-  getClassByCode(code) {
-    const classes = this.getClasses();
-    return classes.find(c => c.classCode === code);
-  },
-  getAttendanceSummary() {
-    const students = this.getStudents();
-    const attendance = this.getAttendance();
-    return students.map(student => {
-      const studentRecords = attendance.filter(a => a.studentId === student.id);
-      const present = studentRecords.filter(r => r.status === 'present').length;
-      const absent = studentRecords.filter(r => r.status === 'absent').length;
-      const late = studentRecords.filter(r => r.status === 'late').length;
-      return {
-        studentId: student.id,
-        studentName: student.name,
-        present, absent, late,
-        total: studentRecords.length
-      };
-    });
-  },
-  updateUserName(userId, newName) {
-    const users = JSON.parse(localStorage.getItem('users') || '[]');
-    const index = users.findIndex(u => u.username === userId || u.studentId === userId);
-    if (index !== -1) {
-      users[index].name = newName;
-      localStorage.setItem('users', JSON.stringify(users));
-      
-      // Also update student record if it's a student
-      if (users[index].role === 'student' && users[index].studentId) {
-        this.updateStudent(users[index].studentId, { name: newName });
-      }
-      return true;
-    }
-    return false;
-  },
-  getUserName(userId) {
-    const users = JSON.parse(localStorage.getItem('users') || '[]');
-    const user = users.find(u => u.username === userId || u.studentId === userId);
-    return user ? user.name : userId;
+    return true;
   }
-};
-db.initData();
+  return false;
+}
 
-/* ─── API Wrapper ───────────────────────────────────────────────── */
-const GET = async (path) => {
-  if (path === '/auth/me') {
-    const user = localStorage.getItem('current_user');
-    if (!user) throw new Error('Not logged in');
-    return JSON.parse(user);
-  }
-  if (path === '/students') return db.getStudents();
-  if (path === '/attendance') return db.getAttendance(currentDate);
-  if (path === '/attendance/summary') return db.getAttendanceSummary();
-  if (path === '/classes') return db.getClasses();
-  return [];
-};
-
-const POST = async (path, data) => {
-  if (path === '/auth/logout') {
-    localStorage.removeItem('current_user');
-    return {};
-  }
-  if (path === '/students') return db.addStudent(data);
-  if (path === '/attendance') return db.saveAttendance(data);
-  if (path === '/classes') return db.addClass(data);
-  if (path === '/auth/login') {
-    const users = JSON.parse(localStorage.getItem('users') || '[]');
-    const user = users.find(u => u.username === data.username && u.password === data.password);
-    if (!user) throw new Error('Invalid credentials');
-    localStorage.setItem('current_user', JSON.stringify({ 
-      id: user.studentId || 'teacher_' + Date.now(),
-      username: user.username, 
-      role: user.role,
-      studentId: user.studentId,
-      name: user.name || user.username
-    }));
-    return { success: true };
-  }
-  if (path === '/auth/join-class') {
-    const classInfo = db.getClassByCode(data.classCode);
-    if (!classInfo) throw new Error('Invalid class code');
-    return { success: true, classInfo };
-  }
-  return {};
-};
-
-const PATCH = async (path, data) => {
-  if (path.startsWith('/students/')) {
-    const id = parseInt(path.split('/')[2]);
-    return db.updateStudent(id, data);
-  }
-  if (path.startsWith('/classes/')) {
-    const id = parseInt(path.split('/')[2]);
-    return db.updateClass(id, data);
-  }
-  if (path === '/auth/update-name') {
-    db.updateUserName(data.userId, data.name);
-    if (currentUser && (currentUser.username === data.userId || currentUser.id === data.userId)) {
-      currentUser.name = data.name;
-      localStorage.setItem('current_user', JSON.stringify(currentUser));
-    }
-    return { success: true };
-  }
-  return {};
-};
-
-const DEL = async (path) => {
-  if (path.startsWith('/students/')) {
-    const id = parseInt(path.split('/')[2]);
-    db.deleteStudent(id);
-  }
-  if (path.startsWith('/classes/')) {
-    const id = parseInt(path.split('/')[2]);
-    db.deleteClass(id);
-  }
-};
+initData();
 
 /* ─── Auth Functions ────────────────────────────────────────────── */
 async function showLoginScreen() {
@@ -547,47 +480,44 @@ async function handleStudentJoinClass() {
     return;
   }
   
-  try {
-    const result = await POST('/auth/join-class', { classCode });
-    if (result.success) {
-      // Create a new student account
-      const users = JSON.parse(localStorage.getItem('users') || '[]');
-      const newStudent = {
-        username: 'student_' + Date.now(),
-        password: '123',
-        role: 'student',
-        studentId: Date.now(),
-        name: studentName,
-        classId: result.classInfo.id
-      };
-      users.push(newStudent);
-      localStorage.setItem('users', JSON.stringify(users));
-      
-      // Add to students list
-      await POST('/students', { 
-        id: newStudent.studentId, 
-        name: studentName, 
-        grade: result.classInfo.grade || '',
-        classId: result.classInfo.id 
-      });
-      
-      // Auto login
-      localStorage.setItem('current_user', JSON.stringify({ 
-        id: newStudent.studentId,
-        username: newStudent.username,
-        role: 'student',
-        studentId: newStudent.studentId,
-        name: studentName
-      }));
-      currentUser = JSON.parse(localStorage.getItem('current_user'));
-      document.getElementById('login-screen').style.display = 'none';
-      launchApp();
-      toast(`Welcome to ${result.classInfo.name}, ${studentName}!`, 'success');
-    }
-  } catch (err) {
+  const classInfo = getClassByCode(classCode);
+  if (!classInfo) {
     errEl.textContent = 'Invalid class code. Please try again.';
     errEl.style.display = 'block';
+    return;
   }
+  
+  const users = JSON.parse(localStorage.getItem('users') || '[]');
+  const newStudentId = Date.now();
+  const newStudent = {
+    username: 'student_' + newStudentId,
+    password: '123',
+    role: 'student',
+    studentId: newStudentId,
+    name: studentName,
+    classId: classInfo.id
+  };
+  users.push(newStudent);
+  localStorage.setItem('users', JSON.stringify(users));
+  
+  addStudent({ 
+    id: newStudentId, 
+    name: studentName, 
+    grade: classInfo.grade || '',
+    classId: classInfo.id 
+  });
+  
+  currentUser = { 
+    id: newStudentId,
+    username: newStudent.username,
+    role: 'student',
+    studentId: newStudentId,
+    name: studentName
+  };
+  localStorage.setItem('current_user', JSON.stringify(currentUser));
+  document.getElementById('login-screen').style.display = 'none';
+  launchApp();
+  toast(`Welcome to ${classInfo.name}, ${studentName}!`, 'success');
 }
 
 async function handleTeacherLogin() {
@@ -595,46 +525,64 @@ async function handleTeacherLogin() {
   const password = document.getElementById('auth-password').value;
   const errEl = document.getElementById('auth-error');
   
-  try {
-    await POST('/auth/login', { username, password, role: 'teacher' });
-    currentUser = JSON.parse(localStorage.getItem('current_user'));
-    document.getElementById('login-screen').style.display = 'none';
-    
-    // Ask teacher to set their name if not set
-    if (!currentUser.name) {
-      const teacherName = prompt('Welcome! Please enter your name:', 'Ms. Johnson');
-      if (teacherName) {
-        await PATCH('/auth/update-name', { userId: username, name: teacherName });
-        currentUser.name = teacherName;
-        localStorage.setItem('current_user', JSON.stringify(currentUser));
-      }
-    }
-    
-    launchApp();
-    toast(`Welcome back, ${currentUser.name || username}!`, 'success');
-  } catch (err) {
+  const users = JSON.parse(localStorage.getItem('users') || '[]');
+  const user = users.find(u => u.username === username && u.password === password && u.role === 'teacher');
+  
+  if (!user) {
     errEl.textContent = 'Invalid username or password';
     errEl.style.display = 'block';
+    return;
   }
+  
+  currentUser = {
+    id: 'teacher_' + Date.now(),
+    username: username,
+    role: 'teacher',
+    name: user.name || username
+  };
+  localStorage.setItem('current_user', JSON.stringify(currentUser));
+  document.getElementById('login-screen').style.display = 'none';
+  
+  if (!currentUser.name || currentUser.name === username) {
+    const teacherName = prompt('Welcome! Please enter your name:', 'Ms. Johnson');
+    if (teacherName) {
+      updateUserName(username, teacherName);
+      currentUser.name = teacherName;
+      localStorage.setItem('current_user', JSON.stringify(currentUser));
+    }
+  }
+  
+  launchApp();
+  toast(`Welcome back, ${currentUser.name || username}!`, 'success');
 }
 
 async function handleLogin(role) {
-  const username = document.getElementById('auth-username')?.value.trim() || (role === 'teacher' ? 'teacher' : 'student');
-  const password = document.getElementById('auth-password')?.value.trim() || '123';
-  const errEl = document.getElementById('auth-error');
+  const username = role === 'teacher' ? 'teacher' : 'student';
+  const password = '123';
   
-  try {
-    await POST('/auth/login', { username, password, role });
-    currentUser = JSON.parse(localStorage.getItem('current_user'));
-    document.getElementById('login-screen').style.display = 'none';
-    launchApp();
-    toast(`Welcome back, ${currentUser.name || username}!`, 'success');
-  } catch (err) {
+  const users = JSON.parse(localStorage.getItem('users') || '[]');
+  const user = users.find(u => u.username === username && u.password === password && u.role === role);
+  
+  if (!user) {
+    const errEl = document.getElementById('auth-error');
     if (errEl) {
       errEl.textContent = 'Invalid username or password';
       errEl.style.display = 'block';
     }
+    return;
   }
+  
+  currentUser = {
+    id: role === 'teacher' ? 'teacher_' + Date.now() : user.studentId,
+    username: username,
+    role: role,
+    studentId: user.studentId,
+    name: user.name || username
+  };
+  localStorage.setItem('current_user', JSON.stringify(currentUser));
+  document.getElementById('login-screen').style.display = 'none';
+  launchApp();
+  toast(`Welcome back, ${currentUser.name || username}!`, 'success');
 }
 
 function renderRegisterForm() {
@@ -669,9 +617,8 @@ function renderRegisterForm() {
     users.push({ username, password, role: 'teacher', name: name });
     localStorage.setItem('users', JSON.stringify(users));
     
-    // Create default class
-    const classes = JSON.parse(localStorage.getItem('classes') || '[]');
     const classCode = generateClassCode();
+    const classes = getClasses();
     classes.push({ id: Date.now(), name: className || 'My Class', schoolName: school, grade: '', classCode });
     localStorage.setItem('classes', JSON.stringify(classes));
     
@@ -693,7 +640,7 @@ async function launchApp() {
   applySidebarGradient(getSidebarGradient());
   document.getElementById('app-layout').style.display = 'flex';
   
-  const classes = await GET('/classes');
+  const classes = getClasses();
   if (classes.length > 0) {
     currentClassId = classes[0].id;
     document.getElementById('brand-title-el').textContent = classes[0].name;
@@ -707,7 +654,7 @@ async function launchApp() {
   });
   
   document.getElementById('logout-btn').addEventListener('click', async () => {
-    await POST('/auth/logout');
+    localStorage.removeItem('current_user');
     currentUser = null;
     location.reload();
   });
@@ -736,8 +683,8 @@ async function render() {
 
 /* ─── Render Functions ──────────────────────────────────────────── */
 async function renderAttendance(main) {
-  students = await GET('/students');
-  const attendanceRecords = await GET('/attendance');
+  const students = getStudents();
+  const attendanceRecords = getAttendance(currentDate);
   const attendanceMap = {};
   attendanceRecords.forEach(r => { attendanceMap[r.studentId] = r; });
   
@@ -815,17 +762,15 @@ async function renderAttendance(main) {
       const status = btn.dataset.status;
       const row = document.querySelector(`.student-row[data-student-id="${studentId}"]`);
       const notes = row?.querySelector('.notes-input')?.value || '';
-      try {
-        await POST('/attendance', { studentId, date: currentDate, status, notes });
-        toast(`Marked as ${status}`, 'success');
-        render();
-      } catch { toast('Failed to save', 'error'); }
+      saveAttendance({ studentId, date: currentDate, status, notes });
+      toast(`Marked as ${status}`, 'success');
+      render();
     });
   });
 }
 
 async function renderRoster(main) {
-  students = await GET('/students');
+  const students = getStudents();
   main.innerHTML = `
     <div class="page-header">
       <div>
@@ -852,14 +797,26 @@ async function renderRoster(main) {
     </div>
   `;
   
-  document.getElementById('open-add-modal')?.addEventListener('click', () => {
-    document.getElementById('modal-add-student').style.display = 'flex';
-  });
+  // FIXED: Add student button handler
+  const addBtn = document.getElementById('open-add-modal');
+  if (addBtn) {
+    addBtn.addEventListener('click', () => {
+      console.log("Add button clicked");
+      const modal = document.getElementById('modal-add-student');
+      if (modal) {
+        modal.style.display = 'flex';
+        document.getElementById('student-name').focus();
+      } else {
+        console.error("Modal not found");
+        toast("Error: Modal not found", "error");
+      }
+    });
+  }
   
   document.querySelectorAll('.delete-student').forEach(btn => {
     btn.addEventListener('click', async () => {
       if (confirm('Delete this student?')) {
-        await DEL(`/students/${parseInt(btn.dataset.id)}`);
+        deleteStudent(parseInt(btn.dataset.id));
         toast('Student deleted', 'success');
         renderRoster(main);
       }
@@ -872,27 +829,29 @@ async function renderRoster(main) {
       document.getElementById('student-name').value = btn.dataset.name;
       document.getElementById('student-grade').value = btn.dataset.grade;
       document.getElementById('student-notes').value = btn.dataset.notes;
+      const modal = document.getElementById('modal-add-student');
+      if (modal) modal.style.display = 'flex';
+      
       const form = document.getElementById('add-student-form');
       const oldSubmit = form.onsubmit;
       form.onsubmit = async (e) => {
         e.preventDefault();
-        await PATCH(`/students/${id}`, {
+        updateStudent(id, {
           name: document.getElementById('student-name').value,
           grade: document.getElementById('student-grade').value,
           notes: document.getElementById('student-notes').value
         });
         toast('Student updated', 'success');
-        document.getElementById('modal-add-student').style.display = 'none';
+        if (modal) modal.style.display = 'none';
         form.onsubmit = oldSubmit;
         renderRoster(main);
       };
-      document.getElementById('modal-add-student').style.display = 'flex';
     });
   });
 }
 
 async function renderSummary(main) {
-  const summary = await GET('/attendance/summary');
+  const summary = getAttendanceSummary();
   main.innerHTML = `
     <div class="page-header">
       <div>
@@ -932,13 +891,13 @@ async function renderSummary(main) {
             `;
           }).join('')}
         </tbody>
-       </table>
+      </table>
     </div>
   `;
 }
 
 async function renderMyClasses(main) {
-  const classes = await GET('/classes');
+  const classes = getClasses();
   main.innerHTML = `
     <div class="page-header">
       <div><div class="page-title">My Classes</div></div>
@@ -950,11 +909,14 @@ async function renderMyClasses(main) {
           <div class="class-card-info">
             <div class="class-card-name">${esc(c.name)}</div>
             <div class="class-card-meta">${c.schoolName || ''} ${c.grade ? `· ${c.grade}` : ''}</div>
-            <div class="class-card-meta" style="color:var(--teal);font-family:monospace;">Code: ${c.classCode || 'N/A'}</div>
+            <div class="class-card-meta" style="color:var(--teal);font-family:monospace;">
+              Code: ${c.classCode || 'N/A'}
+              <button class="btn btn-sm btn-ghost regenerate-code" data-id="${c.id}" style="margin-left:8px;padding:2px 8px;">🔄 Regenerate</button>
+            </div>
           </div>
           <div class="class-card-actions">
             <button class="btn btn-sm btn-ghost switch-class" data-id="${c.id}">${currentClassId === c.id ? 'Current' : 'Switch'}</button>
-            <button class="btn btn-sm btn-ghost" onclick="navigator.clipboard.writeText('${c.classCode}'); toast('Class code copied!', 'success')">📋 Copy Code</button>
+            <button class="btn btn-sm btn-ghost copy-code" data-code="${c.classCode}">📋 Copy Code</button>
             <button class="btn btn-sm btn-danger delete-class" data-id="${c.id}">🗑️</button>
           </div>
         </div>
@@ -975,10 +937,31 @@ async function renderMyClasses(main) {
     });
   });
   
+  document.querySelectorAll('.copy-code').forEach(btn => {
+    btn.addEventListener('click', () => {
+      navigator.clipboard.writeText(btn.dataset.code);
+      toast('Class code copied!', 'success');
+    });
+  });
+  
+  document.querySelectorAll('.regenerate-code').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const id = parseInt(btn.dataset.id);
+      const newCode = generateClassCode();
+      updateClass(id, { classCode: newCode });
+      toast('New class code generated!', 'success');
+      renderMyClasses(main);
+    });
+  });
+  
   document.querySelectorAll('.delete-class').forEach(btn => {
     btn.addEventListener('click', async () => {
       if (confirm('Delete this class?')) {
-        await DEL(`/classes/${parseInt(btn.dataset.id)}`);
+        deleteClass(parseInt(btn.dataset.id));
+        if (currentClassId === parseInt(btn.dataset.id)) {
+          const classes = getClasses();
+          currentClassId = classes.length > 0 ? classes[0].id : null;
+        }
         toast('Class deleted', 'success');
         renderMyClasses(main);
       }
@@ -988,136 +971,157 @@ async function renderMyClasses(main) {
 
 /* ─── Student Dashboard ─────────────────────────────────────────── */
 async function showStudentDashboard() {
-  document.getElementById('app-layout').style.display = 'flex';
-  document.querySelectorAll('.nav-item').forEach(b => { if (b) b.style.display = 'none'; });
-  
-  const studentId = currentUser.studentId;
-  students = await GET('/students');
-  const studentInfo = students.find(s => s.id === studentId);
-  const allAttendance = await GET('/attendance');
-  const myRecords = allAttendance.filter(a => a.studentId === studentId);
-  const classmates = students.filter(s => s.id !== studentId);
-  
-  // Safe birthday check
-  if (studentInfo) {
-    checkBirthdays([studentInfo]);
-  }
-  
-  const { earned: achievements, rate, maxStreak, present, total } = calculateAchievements(myRecords);
-  const absent = myRecords.filter(r => r.status === 'absent').length;
-  const late = myRecords.filter(r => r.status === 'late').length;
-  
-  let currentStreak = 0;
-  const sortedPresent = myRecords.filter(r => r.status === 'present').sort((a, b) => new Date(b.date) - new Date(a.date));
-  for (let i = 0; i < sortedPresent.length; i++) {
-    if (i === 0) currentStreak = 1;
-    else {
-      const prevDate = new Date(sortedPresent[i - 1].date);
-      const currDate = new Date(sortedPresent[i].date);
-      const diffDays = (prevDate - currDate) / (1000 * 60 * 60 * 24);
-      if (diffDays === 1) currentStreak++;
-      else break;
+  try {
+    document.getElementById('app-layout').style.display = 'flex';
+    document.querySelectorAll('.nav-item').forEach(b => { if (b) b.style.display = 'none'; });
+    
+    const studentId = currentUser?.studentId;
+    if (!studentId) {
+      console.error("No student ID found");
+      return;
     }
-  }
-  
-  const main = document.getElementById('main');
-  main.innerHTML = `
-    ${bannerHTML(currentUser.id)}
-    <div class="student-dash">
-      <div class="student-dash-header">
-        <div class="student-avatar-large" id="change-avatar-btn" style="cursor:pointer;">
-          ${getStudentAvatarDisplay(studentInfo || { id: studentId, name: currentUser.name || 'Student' })}
-        </div>
-        <div style="flex:1">
-          <div class="page-title">Welcome, ${esc(studentInfo?.name || currentUser.name || 'Student')}!</div>
-          <div class="page-sub">${studentInfo?.grade ? `${studentInfo.grade}` : ''}</div>
-          <button class="btn btn-ghost btn-sm" id="change-name-btn" style="margin-top:8px;">✏️ Change Display Name</button>
-        </div>
-        <div style="display:flex;gap:8px">
-          <button class="btn btn-ghost btn-sm" id="change-banner-btn">🎨 Change Banner</button>
-          <button class="btn btn-ghost btn-sm" id="view-classmates-btn">👥 Classmates (${classmates.length})</button>
-          <button class="btn btn-ghost" id="student-logout-btn">🚪 Sign Out</button>
-        </div>
-      </div>
-      
-      <div class="stat-grid">
-        <div class="stat-card green"><div class="stat-label">Present</div><div class="stat-value">${present}</div></div>
-        <div class="stat-card red"><div class="stat-label">Absent</div><div class="stat-value">${absent}</div></div>
-        <div class="stat-card amber"><div class="stat-label">Late</div><div class="stat-value">${late}</div></div>
-        <div class="stat-card"><div class="stat-label">Attendance Rate</div><div class="stat-value" style="color:var(--teal)">${Math.round(rate)}%</div></div>
-      </div>
-      
-      <div class="card streak-card">
-        <div style="display:flex;justify-content:space-between;padding:20px;">
-          <div><div class="streak-value">${currentStreak}</div><div class="streak-label">Current Streak 🔥</div></div>
-          <div><div class="streak-value">${maxStreak}</div><div class="streak-label">Best Streak 🏆</div></div>
-        </div>
-      </div>
-      
-      <div class="card">
-        <div class="card-header">🏆 Achievements (${achievements.length}/${ACHIEVEMENTS.length})</div>
-        <div class="badges-grid">
-          ${ACHIEVEMENTS.map(ach => {
-            const earned = achievements.some(e => e.id === ach.id);
-            return `<div class="badge-card ${earned ? 'badge-earned' : ''}">
-              <div class="badge-icon">${ach.icon}</div>
-              <div class="badge-name">${ach.name}</div>
-              <div class="badge-description">${ach.description}</div>
-            </div>`;
-          }).join('')}
-        </div>
-      </div>
-      
-      <div class="card">
-        <div class="card-header">📅 Attendance History</div>
-        <div>
-          ${myRecords.length === 0 ? '<div class="empty-state">No records yet</div>' : myRecords.sort((a,b)=>new Date(b.date)-new Date(a.date)).map(r => `
-            <div class="student-history-row">
-              <div class="student-history-date">${formatDate(r.date)}</div>
-              <span class="badge ${r.status === 'present' ? 'badge-green' : r.status === 'absent' ? 'badge-red' : 'badge-amber'}">${r.status}</span>
-              ${r.notes ? `<div class="student-history-note">${esc(r.notes)}</div>` : '<div></div>'}
-            </div>
-          `).join('')}
-        </div>
-      </div>
-    </div>
-  `;
-  
-  document.getElementById('student-logout-btn')?.addEventListener('click', async () => {
-    localStorage.removeItem('current_user');
-    location.reload();
-  });
-  
-  document.getElementById('change-avatar-btn')?.addEventListener('click', () => {
-    openProfilePictureModal(studentId, () => showStudentDashboard());
-  });
-  
-  document.getElementById('change-banner-btn')?.addEventListener('click', () => {
-    openBannerPicker(currentUser.id, () => showStudentDashboard());
-  });
-  
-  document.getElementById('view-classmates-btn')?.addEventListener('click', () => {
-    showClassmatesGallery(classmates);
-  });
-  
-  document.getElementById('change-name-btn')?.addEventListener('click', async () => {
-    const newName = prompt('Enter your new display name:', studentInfo?.name || currentUser.name);
-    if (newName && newName.trim()) {
-      await PATCH('/auth/update-name', { userId: currentUser.username, name: newName });
-      if (studentInfo) {
-        await PATCH(`/students/${studentId}`, { name: newName });
+    
+    const students = getStudents();
+    const studentInfo = students.find(s => s.id === studentId);
+    const allAttendance = JSON.parse(localStorage.getItem('attendance') || '[]');
+    const myRecords = allAttendance.filter(a => a.studentId === studentId);
+    const classmates = students.filter(s => s.id !== studentId);
+    
+    if (studentInfo && studentInfo.birthday) {
+      checkBirthdays([studentInfo]);
+    }
+    
+    const { earned: achievements, rate, maxStreak, present, total } = calculateAchievements(myRecords);
+    const absent = myRecords.filter(r => r.status === 'absent').length;
+    const late = myRecords.filter(r => r.status === 'late').length;
+    
+    let currentStreak = 0;
+    const sortedPresent = myRecords.filter(r => r.status === 'present').sort((a, b) => new Date(b.date) - new Date(a.date));
+    for (let i = 0; i < sortedPresent.length; i++) {
+      if (i === 0) currentStreak = 1;
+      else {
+        const prevDate = new Date(sortedPresent[i - 1].date);
+        const currDate = new Date(sortedPresent[i].date);
+        const diffDays = (prevDate - currDate) / (1000 * 60 * 60 * 24);
+        if (diffDays === 1) currentStreak++;
+        else break;
       }
-      toast('Name updated successfully!', 'success');
-      showStudentDashboard();
     }
-  });
+    
+    const main = document.getElementById('main');
+    main.innerHTML = `
+      ${bannerHTML(currentUser.id || 'student')}
+      <div class="student-dash">
+        <div class="student-dash-header">
+          <div class="student-avatar-large" id="change-avatar-btn" style="cursor:pointer;">
+            ${getStudentAvatarDisplay(studentInfo || { id: studentId, name: currentUser.name || 'Student' })}
+          </div>
+          <div style="flex:1">
+            <div class="page-title">Welcome, ${esc(studentInfo?.name || currentUser.name || 'Student')}!</div>
+            <div class="page-sub">${studentInfo?.grade ? `${studentInfo.grade}` : ''}</div>
+            <button class="btn btn-ghost btn-sm" id="change-name-btn" style="margin-top:8px;">✏️ Change Display Name</button>
+          </div>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-ghost btn-sm" id="change-banner-btn">🎨 Change Banner</button>
+            <button class="btn btn-ghost btn-sm" id="view-classmates-btn">👥 Classmates (${classmates.length})</button>
+            <button class="btn btn-ghost" id="student-logout-btn">🚪 Sign Out</button>
+          </div>
+        </div>
+        
+        <div class="stat-grid">
+          <div class="stat-card green"><div class="stat-label">Present</div><div class="stat-value">${present}</div></div>
+          <div class="stat-card red"><div class="stat-label">Absent</div><div class="stat-value">${absent}</div></div>
+          <div class="stat-card amber"><div class="stat-label">Late</div><div class="stat-value">${late}</div></div>
+          <div class="stat-card"><div class="stat-label">Attendance Rate</div><div class="stat-value" style="color:var(--teal)">${Math.round(rate)}%</div></div>
+        </div>
+        
+        <div class="card streak-card">
+          <div style="display:flex;justify-content:space-between;padding:20px;">
+            <div><div class="streak-value">${currentStreak}</div><div class="streak-label">Current Streak 🔥</div></div>
+            <div><div class="streak-value">${maxStreak}</div><div class="streak-label">Best Streak 🏆</div></div>
+          </div>
+        </div>
+        
+        <div class="card">
+          <div class="card-header">🏆 Achievements (${achievements.length}/${ACHIEVEMENTS.length})</div>
+          <div class="badges-grid">
+            ${ACHIEVEMENTS.map(ach => {
+              const earned = achievements.some(e => e.id === ach.id);
+              return `<div class="badge-card ${earned ? 'badge-earned' : ''}">
+                <div class="badge-icon">${ach.icon}</div>
+                <div class="badge-name">${ach.name}</div>
+                <div class="badge-description">${ach.description}</div>
+              </div>`;
+            }).join('')}
+          </div>
+        </div>
+        
+        <div class="card">
+          <div class="card-header">📅 Attendance History</div>
+          <div>
+            ${myRecords.length === 0 ? '<div class="empty-state">No records yet</div>' : myRecords.sort((a,b)=>new Date(b.date)-new Date(a.date)).map(r => `
+              <div class="student-history-row">
+                <div class="student-history-date">${formatDate(r.date)}</div>
+                <span class="badge ${r.status === 'present' ? 'badge-green' : r.status === 'absent' ? 'badge-red' : 'badge-amber'}">${r.status}</span>
+                ${r.notes ? `<div class="student-history-note">${esc(r.notes)}</div>` : '<div></div>'}
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      </div>
+    `;
+    
+    document.getElementById('student-logout-btn')?.addEventListener('click', async () => {
+      localStorage.removeItem('current_user');
+      location.reload();
+    });
+    
+    document.getElementById('change-avatar-btn')?.addEventListener('click', () => {
+      openProfilePictureModal(studentId, () => showStudentDashboard());
+    });
+    
+    document.getElementById('change-banner-btn')?.addEventListener('click', () => {
+      openBannerPicker(currentUser.id, () => showStudentDashboard());
+    });
+    
+    document.getElementById('view-classmates-btn')?.addEventListener('click', () => {
+      showClassmatesGallery(classmates);
+    });
+    
+    document.getElementById('change-name-btn')?.addEventListener('click', async () => {
+      const newName = prompt('Enter your new display name:', studentInfo?.name || currentUser.name);
+      if (newName && newName.trim()) {
+        updateUserName(currentUser.username, newName);
+        if (studentInfo) {
+          updateStudent(studentId, { name: newName });
+        }
+        currentUser.name = newName;
+        localStorage.setItem('current_user', JSON.stringify(currentUser));
+        toast('Name updated successfully!', 'success');
+        showStudentDashboard();
+      }
+    });
+  } catch (error) {
+    console.error("Error loading student dashboard:", error);
+    toast("Error loading dashboard. Please refresh.", "error");
+  }
 }
 
+/* ─── Profile Picture Modal ─────────────────────────────────────── */
 function openProfilePictureModal(studentId, onSave) {
   const modal = document.getElementById('modal-profile-picture');
-  if (!modal) return;
+  if (!modal) {
+    console.error("Profile picture modal not found");
+    toast("Error: Modal not found", "error");
+    return;
+  }
   
   const grid = document.getElementById('avatars-grid');
+  if (!grid) {
+    console.error("Avatars grid not found");
+    return;
+  }
+  
   let selectedAvatar = localStorage.getItem(`avatar_${studentId}`) || 'avatar1';
   let selectedFile = null;
   
@@ -1137,34 +1141,49 @@ function openProfilePictureModal(studentId, onSave) {
   });
   
   const fileInput = document.getElementById('profile-photo-input');
-  document.getElementById('upload-photo-btn').onclick = () => fileInput.click();
-  fileInput.onchange = (e) => {
-    const file = e.target.files[0];
-    if (file && file.type.startsWith('image/')) {
-      const reader = new FileReader();
-      reader.onload = (ev) => {
-        selectedFile = ev.target.result;
-        toast('Photo loaded! Click Save', 'success');
-      };
-      reader.readAsDataURL(file);
-    }
-  };
+  const uploadBtn = document.getElementById('upload-photo-btn');
+  
+  if (uploadBtn) {
+    uploadBtn.onclick = () => fileInput.click();
+  }
+  
+  if (fileInput) {
+    fileInput.onchange = (e) => {
+      const file = e.target.files[0];
+      if (file && file.type.startsWith('image/')) {
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+          selectedFile = ev.target.result;
+          toast('Photo loaded! Click Save', 'success');
+        };
+        reader.readAsDataURL(file);
+      }
+    };
+  }
   
   modal.style.display = 'flex';
   
   const saveHandler = () => {
-    if (selectedFile) setStudentProfilePic(studentId, selectedFile);
-    else if (selectedAvatar) setStudentProfilePic(studentId, selectedAvatar);
+    if (selectedFile) {
+      setStudentProfilePic(studentId, selectedFile);
+    } else if (selectedAvatar) {
+      setStudentProfilePic(studentId, selectedAvatar);
+    }
     toast('Profile picture updated!', 'success');
     modal.style.display = 'none';
     if (onSave) onSave();
   };
   
-  document.getElementById('profile-pic-save').onclick = saveHandler;
-  document.getElementById('profile-pic-cancel').onclick = () => modal.style.display = 'none';
-  document.getElementById('profile-pic-close').onclick = () => modal.style.display = 'none';
+  const saveBtn = document.getElementById('profile-pic-save');
+  const cancelBtn = document.getElementById('profile-pic-cancel');
+  const closeBtn = document.getElementById('profile-pic-close');
+  
+  if (saveBtn) saveBtn.onclick = saveHandler;
+  if (cancelBtn) cancelBtn.onclick = () => modal.style.display = 'none';
+  if (closeBtn) closeBtn.onclick = () => modal.style.display = 'none';
 }
 
+/* ─── Banner Picker Modal ───────────────────────────────────────── */
 function openBannerPicker(uid, onSave) {
   const modal = document.getElementById('modal-banner');
   if (!modal) return;
@@ -1199,16 +1218,21 @@ function openBannerPicker(uid, onSave) {
   
   modal.style.display = 'flex';
   
-  document.getElementById('banner-save-btn').onclick = () => {
+  const saveBtn = document.getElementById('banner-save-btn');
+  const closeBtn = document.getElementById('banner-close-btn');
+  const closeBtn2 = document.getElementById('banner-close-btn2');
+  
+  if (saveBtn) saveBtn.onclick = () => {
     setBanner(uid, selectedBanner);
     toast('Banner updated!', 'success');
     modal.style.display = 'none';
     if (onSave) onSave();
   };
-  document.getElementById('banner-close-btn').onclick = () => modal.style.display = 'none';
-  document.getElementById('banner-close-btn2').onclick = () => modal.style.display = 'none';
+  if (closeBtn) closeBtn.onclick = () => modal.style.display = 'none';
+  if (closeBtn2) closeBtn2.onclick = () => modal.style.display = 'none';
 }
 
+/* ─── Classmates Gallery ────────────────────────────────────────── */
 function showClassmatesGallery(classmates) {
   const modal = document.createElement('div');
   modal.className = 'modal-overlay';
@@ -1239,6 +1263,9 @@ function showClassmatesGallery(classmates) {
 }
 
 /* ─── Chat Functions ────────────────────────────────────────────── */
+let currentChatRoom = localStorage.getItem('chat_room_key') || 'default-room';
+let chatMessages = JSON.parse(localStorage.getItem(`chat_messages_${currentChatRoom}`) || '[]');
+
 function applyFormatting(command, value = null) {
   document.execCommand(command, false, value);
   document.getElementById('message-input')?.focus();
@@ -1276,19 +1303,19 @@ async function renderChat(main) {
     <div class="page-header">
       <div>
         <div class="page-title">💬 Class Chat</div>
-        <div class="page-sub">Room: <strong>${esc(roomKey)}</strong></div>
+        <div class="page-sub">Room: <strong>${esc(roomKey)}</strong> · Be respectful and have fun!</div>
       </div>
       <button class="btn btn-ghost" id="change-room-btn">🏠 Change Room</button>
     </div>
     
     <div class="chat-container">
       <div class="chat-toolbar">
-        <button class="toolbar-btn" onclick="applyFormatting('bold')"><b>B</b></button>
-        <button class="toolbar-btn" onclick="applyFormatting('italic')"><i>I</i></button>
-        <button class="toolbar-btn" onclick="applyFormatting('underline')"><u>U</u></button>
-        <button class="toolbar-btn" onclick="showColorPicker()">🎨 Color</button>
-        <button class="toolbar-btn" onclick="showFontSize()">📏 Size</button>
-        <div style="width:1px;background:var(--border);margin:0 4px;"></div>
+        <button class="toolbar-btn" onclick="applyFormatting('bold')" title="Bold"><b>B</b></button>
+        <button class="toolbar-btn" onclick="applyFormatting('italic')" title="Italic"><i>I</i></button>
+        <button class="toolbar-btn" onclick="applyFormatting('underline')" title="Underline"><u>U</u></button>
+        <button class="toolbar-btn" onclick="showColorPicker()" title="Text Color">🎨 Color</button>
+        <button class="toolbar-btn" onclick="showFontSize()" title="Font Size">📏 Size</button>
+        <div style="width:1px;background:var(--border);margin:0 8px;"></div>
         <button class="toolbar-btn" onclick="insertEmoji('😀')">😀</button>
         <button class="toolbar-btn" onclick="insertEmoji('😂')">😂</button>
         <button class="toolbar-btn" onclick="insertEmoji('❤️')">❤️</button>
@@ -1296,10 +1323,13 @@ async function renderChat(main) {
         <button class="toolbar-btn" onclick="insertEmoji('🎉')">🎉</button>
         <button class="toolbar-btn" onclick="insertEmoji('📚')">📚</button>
         <button class="toolbar-btn" onclick="insertEmoji('🏆')">🏆</button>
+        <button class="toolbar-btn" onclick="insertEmoji('😎')">😎</button>
+        <button class="toolbar-btn" onclick="insertEmoji('🤔')">🤔</button>
+        <button class="toolbar-btn" onclick="insertEmoji('💯')">💯</button>
       </div>
       
       <div class="chat-messages" id="chat-messages">
-        ${messages.length === 0 ? '<div class="chat-empty">💬 No messages yet. Say hello!</div>' : ''}
+        ${messages.length === 0 ? '<div class="chat-empty">💬 No messages yet. Be the first to say hello!</div>' : ''}
         ${messages.map(msg => `
           <div class="chat-message ${msg.senderId === currentUser?.id ? 'chat-message-me' : 'chat-message-them'}">
             ${msg.senderId !== currentUser?.id ? `<div class="chat-sender">${esc(msg.senderName)}</div>` : ''}
@@ -1310,37 +1340,46 @@ async function renderChat(main) {
       
       <div class="chat-input-area">
         <form class="chat-input-form" id="chat-form">
-          <input type="text" class="chat-input" id="message-input" placeholder="Type your message here..." autocomplete="off">
+          <input type="text" class="chat-input" id="message-input" placeholder="Type your message here..." autocomplete="off" maxlength="500">
           <button type="submit" class="chat-send-btn">📤 Send</button>
         </form>
       </div>
     </div>
   `;
   
+  // Make functions global for inline onclick handlers
   window.applyFormatting = applyFormatting;
   window.showColorPicker = showColorPicker;
   window.showFontSize = showFontSize;
   window.insertEmoji = insertEmoji;
   
+  // Auto-scroll to bottom
+  const messagesDiv = document.getElementById('chat-messages');
+  if (messagesDiv) {
+    messagesDiv.scrollTop = messagesDiv.scrollHeight;
+  }
+  
   const chatForm = document.getElementById('chat-form');
-  chatForm?.addEventListener('submit', (e) => {
-    e.preventDefault();
-    const input = document.getElementById('message-input');
-    const text = input.value.trim();
-    if (!text) return;
-    
-    const newMessage = {
-      id: Date.now(),
-      text: text,
-      senderId: currentUser?.id || 'anonymous',
-      senderName: displayName,
-      timestamp: new Date().toISOString()
-    };
-    messages.push(newMessage);
-    localStorage.setItem(`chat_messages_${roomKey}`, JSON.stringify(messages));
-    input.value = '';
-    renderChat(main);
-  });
+  if (chatForm) {
+    chatForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const input = document.getElementById('message-input');
+      const text = input.value.trim();
+      if (!text) return;
+      
+      const newMessage = {
+        id: Date.now(),
+        text: text,
+        senderId: currentUser?.id || 'anonymous',
+        senderName: displayName,
+        timestamp: new Date().toISOString()
+      };
+      messages.push(newMessage);
+      localStorage.setItem(`chat_messages_${roomKey}`, JSON.stringify(messages));
+      input.value = '';
+      renderChat(main);
+    });
+  }
   
   document.getElementById('change-room-btn')?.addEventListener('click', () => {
     const newRoom = prompt('Enter room name:', roomKey);
@@ -1380,7 +1419,7 @@ function renderSettings(main) {
           <div><div class="settings-section-title">Sidebar Gradient</div></div>
         </div>
         <div class="sidebar-swatches">
-          ${SIDEBAR_PRESETS.map(p => `<button class="sidebar-swatch" data-gradient="${p.gradient}" style="background:${p.gradient};width:80px;height:50px;border-radius:8px;"></button>`).join('')}
+          ${SIDEBAR_PRESETS.map(p => `<button class="sidebar-swatch" data-gradient="${p.gradient}" style="background:${p.gradient};width:80px;height:50px;border-radius:8px;cursor:pointer;"></button>`).join('')}
         </div>
       </div>
       
@@ -1398,7 +1437,7 @@ function renderSettings(main) {
   document.getElementById('update-name-btn')?.addEventListener('click', async () => {
     const newName = document.getElementById('display-name').value.trim();
     if (newName) {
-      await PATCH('/auth/update-name', { userId: currentUser.username, name: newName });
+      updateUserName(currentUser.username, newName);
       currentUser.name = newName;
       localStorage.setItem('current_user', JSON.stringify(currentUser));
       toast('Name updated!', 'success');
@@ -1414,8 +1453,10 @@ function renderSettings(main) {
   
   document.getElementById('save-room-btn')?.addEventListener('click', () => {
     const roomKey = document.getElementById('chat-room-input').value.trim();
-    if (roomKey) localStorage.setItem('chat_room_key', roomKey);
-    toast('Chat room saved!', 'success');
+    if (roomKey) {
+      localStorage.setItem('chat_room_key', roomKey);
+      toast('Chat room saved!', 'success');
+    }
   });
 }
 
@@ -1424,33 +1465,65 @@ document.addEventListener('DOMContentLoaded', async () => {
   initTheme();
   applySidebarGradient(getSidebarGradient());
   
-  // Add student form handler
-  document.getElementById('add-student-form')?.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const name = document.getElementById('student-name').value.trim();
-    const grade = document.getElementById('student-grade').value.trim();
-    const notes = document.getElementById('student-notes').value.trim();
-    if (!name) return;
-    await POST('/students', { name, grade, notes, classId: currentClassId });
-    toast('Student added!', 'success');
-    document.getElementById('modal-add-student').style.display = 'none';
-    document.getElementById('add-student-form').reset();
-    if (currentPage === 'roster') render();
-  });
+  // FIXED: Add student form handler - This was the issue!
+  const addStudentForm = document.getElementById('add-student-form');
+  if (addStudentForm) {
+    addStudentForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const name = document.getElementById('student-name').value.trim();
+      const grade = document.getElementById('student-grade').value.trim();
+      const notes = document.getElementById('student-notes').value.trim();
+      
+      if (!name) {
+        toast('Please enter a student name', 'error');
+        return;
+      }
+      
+      addStudent({ name, grade, notes, classId: currentClassId });
+      toast('Student added successfully!', 'success');
+      
+      // Reset form and close modal
+      document.getElementById('student-name').value = '';
+      document.getElementById('student-grade').value = '';
+      document.getElementById('student-notes').value = '';
+      document.getElementById('modal-add-student').style.display = 'none';
+      
+      // Refresh the roster page if we're on it
+      if (currentPage === 'roster') {
+        render();
+      }
+    });
+  } else {
+    console.error("Add student form not found!");
+  }
   
   // Add class form handler
-  document.getElementById('add-class-form')?.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const name = document.getElementById('new-class-name').value.trim();
-    const schoolName = document.getElementById('new-class-school').value.trim();
-    const grade = document.getElementById('new-class-grade').value.trim();
-    if (!name) return;
-    await POST('/classes', { name, schoolName, grade });
-    toast('Class created! Class code generated.', 'success');
-    document.getElementById('modal-add-class').style.display = 'none';
-    document.getElementById('add-class-form').reset();
-    if (currentPage === 'classes') render();
-  });
+  const addClassForm = document.getElementById('add-class-form');
+  if (addClassForm) {
+    addClassForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const name = document.getElementById('new-class-name').value.trim();
+      const schoolName = document.getElementById('new-class-school').value.trim();
+      const grade = document.getElementById('new-class-grade').value.trim();
+      
+      if (!name) {
+        toast('Please enter a class name', 'error');
+        return;
+      }
+      
+      addClass({ name, schoolName, grade });
+      toast('Class created! Class code generated.', 'success');
+      
+      document.getElementById('new-class-name').value = '';
+      document.getElementById('new-class-school').value = '';
+      document.getElementById('new-class-grade').value = '';
+      document.getElementById('modal-add-class').style.display = 'none';
+      
+      if (currentPage === 'classes') {
+        render();
+      }
+    });
+  }
   
   const savedUser = localStorage.getItem('current_user');
   if (savedUser) {
@@ -1460,3 +1533,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     showLoginScreen();
   }
 });
+
+// Make functions global for inline event handlers
+window.closeAddModal = function() {
+  document.getElementById('modal-add-student').style.display = 'none';
+};
+
+window.closeClassModal = function() {
+  document.getElementById('modal-add-class').style.display = 'none';
+};
