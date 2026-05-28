@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
   <title>Classroom — Attendance Tracker</title>
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%230d9488'%3E%3Crect x='3' y='4' width='18' height='18' rx='2'/%3E%3Cline x1='16' y1='2' x2='16' y2='6'/%3E%3Cline x1='8' y1='2' x2='8' y2='6'/%3E%3Cline x1='3' y1='10' x2='21' y2='10'/%3E%3C/svg%3E" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -17,6 +17,26 @@
   <script src="https://cdn.jsdelivr.net/npm/cropperjs@1.5.13/dist/cropper.min.js"></script>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/cropperjs@1.5.13/dist/cropper.min.css" />
   <script src="firebase-config.js"></script>
+  <style>
+    /* Extra mobile double-tap context menu simulation - visual feedback */
+    .mobile-context-triggered {
+      animation: contextFlash 0.2s ease-out;
+    }
+    @keyframes contextFlash {
+      0% { background-color: rgba(0,0,0,0.05); }
+      100% { background-color: transparent; }
+    }
+    /* Improved touch targets for mobile */
+    @media (max-width: 768px) {
+      .nav-item, .status-btn, .btn, .student-row, .roster-row, .class-card {
+        cursor: pointer;
+        touch-action: manipulation;
+      }
+      .student-avatar-large, .student-avatar-small {
+        cursor: pointer;
+      }
+    }
+  </style>
 </head>
 <body>
 
@@ -90,12 +110,104 @@
 
   <div class="toast-container" id="toast-container"></div>
 
-  <!-- Modals (remain the same as before) -->
-  <div class="modal-overlay" id="modal-add-student" style="display:none">...</div>
-  <div class="modal-overlay" id="modal-set-login" style="display:none">...</div>
-  <div class="modal-overlay" id="modal-add-class" style="display:none">...</div>
+  <!-- Modals -->
+  <div class="modal-overlay" id="modal-add-student" style="display:none">
+    <div class="modal">
+      <div class="modal-header">
+        <h2 class="modal-title">Add Student</h2>
+        <button class="modal-close" onclick="window.closeAddModal && closeAddModal()">&times;</button>
+      </div>
+      <form id="add-student-form">
+        <div class="form-group">
+          <label class="form-label">Name <span style="color:var(--red)">*</span></label>
+          <input type="text" id="student-name" class="form-input" placeholder="e.g. Emma Johnson" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Grade</label>
+          <input type="text" id="student-grade" class="form-input" placeholder="e.g. 3rd Grade">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Notes</label>
+          <input type="text" id="student-notes" class="form-input" placeholder="Optional notes">
+        </div>
+        <div class="form-actions">
+          <button type="button" class="btn btn-ghost" onclick="window.closeAddModal && closeAddModal()">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save Student</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="modal-set-login" style="display:none">
+    <div class="modal">
+      <div class="modal-header">
+        <h2 class="modal-title">Set Login</h2>
+        <button class="modal-close" onclick="document.getElementById('modal-set-login').style.display='none'">&times;</button>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Username</label>
+        <input type="text" id="set-login-username" class="form-input" placeholder="Choose a username">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Password</label>
+        <input type="password" id="set-login-password" class="form-input" placeholder="Choose a password">
+      </div>
+      <div class="form-actions">
+        <button class="btn btn-ghost" onclick="document.getElementById('modal-set-login').style.display='none'">Cancel</button>
+        <button class="btn btn-primary">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="modal-add-class" style="display:none">
+    <div class="modal">
+      <div class="modal-header">
+        <h2 class="modal-title">Create New Class</h2>
+        <button class="modal-close" onclick="window.closeClassModal && closeClassModal()">&times;</button>
+      </div>
+      <form id="add-class-form">
+        <div class="form-group">
+          <label class="form-label">Class Name <span style="color:var(--red)">*</span></label>
+          <input type="text" id="new-class-name" class="form-input" placeholder="e.g. Mrs. Smith's Class" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">School Name</label>
+          <input type="text" id="new-class-school" class="form-input" placeholder="e.g. Lincoln Elementary">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Grade</label>
+          <input type="text" id="new-class-grade" class="form-input" placeholder="e.g. 3rd Grade">
+        </div>
+        <div class="form-actions">
+          <button type="button" class="btn btn-ghost" onclick="window.closeClassModal && closeClassModal()">Cancel</button>
+          <button type="submit" class="btn btn-primary">Create Class</button>
+        </div>
+      </form>
+    </div>
+  </div>
   
-  <!-- Banner Cropper Modal -->
+  <div class="modal-overlay" id="modal-birthday" style="display:none">
+    <div class="modal" style="text-align:center;padding:32px;">
+      <div style="font-size:64px;margin-bottom:16px;">🎂</div>
+      <div id="birthday-message" style="font-size:18px;font-weight:700;color:var(--text);line-height:1.6;"></div>
+      <button class="btn btn-primary" style="margin-top:24px;" onclick="document.getElementById('modal-birthday').style.display='none'">🎉 Yay!</button>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="modal-banner" style="display:none">
+    <div class="modal modal-wide">
+      <div class="modal-header">
+        <h2 class="modal-title">🎨 Choose a Banner</h2>
+        <button class="modal-close" id="banner-close-btn">&times;</button>
+      </div>
+      <div class="banner-grid" id="banner-modal-grid" style="padding:16px;"></div>
+      <div class="form-actions" style="margin-top:16px;">
+        <button class="btn btn-ghost" id="banner-close-btn2">Cancel</button>
+        <button class="btn btn-primary" id="banner-save-btn">Save Banner</button>
+      </div>
+    </div>
+  </div>
+
   <div class="modal-overlay" id="modal-cropper" style="display:none">
     <div class="modal modal-wide">
       <div class="modal-header">
@@ -111,7 +223,7 @@
       </div>
     </div>
   </div>
-    <!-- Profile Picture Modal -->
+  
   <div class="modal-overlay" id="modal-profile-picture" style="display:none">
     <div class="modal">
       <div class="modal-header">
@@ -131,7 +243,6 @@
     </div>
   </div>
 
-  <!-- View Classmate Profile Modal -->
   <div class="modal-overlay profile-view-modal" id="modal-view-classmate" style="display:none">
     <div class="modal">
       <div class="modal-header">
@@ -143,5 +254,151 @@
   </div>
 
   <script src="app.js"></script>
+  <script>
+    // ============================================================
+    // MOBILE DOUBLE-TAP TO SIMULATE RIGHT-CLICK (CONTEXT MENU)
+    // Feature: fast double tap on any interactive element triggers
+    // a simulated "right-click" (context menu) just like file explorer.
+    // Does NOT interfere with normal single-click navigation.
+    // ============================================================
+    (function setupMobileDoubleTapContext() {
+      // Store touch timers and last tap target
+      let lastTapTime = 0;
+      let lastTapTarget = null;
+      let pendingLongPress = null;
+      const DOUBLE_TAP_DELAY = 300; // milliseconds
+      
+      // Helper: simulate right-click context menu on element
+      function simulateContextMenu(element, clientX, clientY) {
+        if (!element) return false;
+        
+        // Add visual flash feedback
+        element.classList.add('mobile-context-triggered');
+        setTimeout(() => element.classList.remove('mobile-context-triggered'), 200);
+        
+        // Create and dispatch a contextmenu event (right-click)
+        let event;
+        if (typeof PointerEvent !== 'undefined') {
+          event = new PointerEvent('contextmenu', {
+            bubbles: true,
+            cancelable: true,
+            view: window,
+            clientX: clientX || 0,
+            clientY: clientY || 0,
+            button: 2,
+            buttons: 2,
+            pointerType: 'touch'
+          });
+        } else {
+          event = new MouseEvent('contextmenu', {
+            bubbles: true,
+            cancelable: true,
+            view: window,
+            clientX: clientX || 0,
+            clientY: clientY || 0,
+            button: 2,
+            buttons: 2
+          });
+        }
+        
+        element.dispatchEvent(event);
+        
+        // Also show a small toast indication (optional but helpful)
+        const toastMsg = document.createElement('div');
+        toastMsg.className = 'toast';
+        toastMsg.textContent = '🔍 Context menu triggered (double-tap)';
+        toastMsg.style.position = 'fixed';
+        toastMsg.style.bottom = '80px';
+        toastMsg.style.right = '16px';
+        toastMsg.style.zIndex = '9999';
+        toastMsg.style.background = '#2d3748';
+        toastMsg.style.fontSize = '12px';
+        toastMsg.style.padding = '8px 14px';
+        document.body.appendChild(toastMsg);
+        setTimeout(() => toastMsg.remove(), 1500);
+        
+        return true;
+      }
+      
+      // Global touchstart handler for double-tap detection
+      document.body.addEventListener('touchstart', function(e) {
+        // Get the actual target element
+        let target = e.target;
+        // Climb up to find a meaningful interactive element (button, row, card, etc.)
+        while (target && target !== document.body) {
+          const tag = target.tagName;
+          const isInteractive = target.onclick || target.hasAttribute('data-page') || 
+                                target.classList?.contains('nav-item') ||
+                                target.classList?.contains('student-row') ||
+                                target.classList?.contains('roster-row') ||
+                                target.classList?.contains('class-card') ||
+                                target.classList?.contains('status-btn') ||
+                                target.classList?.contains('btn') ||
+                                target.classList?.contains('student-avatar-small') ||
+                                target.classList?.contains('student-avatar-large') ||
+                                target.getAttribute('data-student-id') ||
+                                target.getAttribute('data-id') ||
+                                tag === 'BUTTON' || tag === 'A' ||
+                                (target.parentElement && (target.parentElement.classList?.contains('student-row') || 
+                                                         target.parentElement.classList?.contains('roster-row')));
+          if (isInteractive) break;
+          target = target.parentElement;
+          if (!target || target === document.body) break;
+        }
+        
+        const now = Date.now();
+        const timeDiff = now - lastTapTime;
+        const isDoubleTap = (timeDiff < DOUBLE_TAP_DELAY && lastTapTarget === target);
+        
+        if (isDoubleTap && target && target !== document.body) {
+          // Double tap detected! Prevent default to avoid zoom or selection
+          e.preventDefault();
+          e.stopPropagation();
+          
+          // Get touch coordinates for accurate context menu position
+          const touch = e.touches[0];
+          const clientX = touch ? touch.clientX : (e.clientX || 0);
+          const clientY = touch ? touch.clientY : (e.clientY || 0);
+          
+          // Simulate right-click on the target
+          simulateContextMenu(target, clientX, clientY);
+          
+          // Reset tap tracking to avoid triple-tap confusion
+          lastTapTime = 0;
+          lastTapTarget = null;
+          return false;
+        } else {
+          // Single tap detection: store for potential double-tap
+          lastTapTime = now;
+          lastTapTarget = target;
+          // Clear after delay to avoid memory leaks
+          setTimeout(() => {
+            if (lastTapTime === now) {
+              lastTapTarget = null;
+            }
+          }, DOUBLE_TAP_DELAY);
+        }
+      }, { passive: false });
+      
+      // Also handle contextmenu event on mobile to prevent native browser menu
+      // but still allow our simulated one to work
+      document.body.addEventListener('contextmenu', function(e) {
+        // On touch devices, long-press normally opens browser context menu.
+        // We allow our double-tap to work, but we don't want to block regular
+        // contextmenu on desktop - only on mobile we might want to suppress?
+        // Actually, keep native behavior for long-press, double-tap is additional.
+        // No suppression needed, but we add visual feedback for any contextmenu
+        const target = e.target;
+        if (target && target.classList) {
+          target.classList.add('mobile-context-triggered');
+          setTimeout(() => target.classList.remove('mobile-context-triggered'), 200);
+        }
+      });
+      
+      // Ensure that sidebar buttons and navigation still work perfectly with single tap
+      // No interference — we just augment with double-tap right-click simulation.
+      console.log('✅ Mobile double-tap context menu feature enabled (fast double tap = right click)');
+    })();
+  </script>
 </body>
 </html>
