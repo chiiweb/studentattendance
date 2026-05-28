@@ -130,7 +130,7 @@ function getStudentAvatarDisplay(student) {
     const avatar = STUDENT_AVATARS.find(a => a.id === avatarId);
     if (avatar) return `<span style="font-size:24px;">${avatar.emoji}</span>`;
   }
-  return `<span style="font-size:24px;">${student.name?.charAt(0).toUpperCase() || '?'}</span>';
+  return `<span style="font-size:24px;">${student.name?.charAt(0).toUpperCase() || '?'}</span>`;
 }
 
 /* ─── Banner Functions ──────────────────────────────────────────── */
@@ -1310,12 +1310,6 @@ async function renderChat(main) {
     
     <div class="chat-container">
       <div class="chat-toolbar">
-        <button class="toolbar-btn" onclick="applyFormatting('bold')" title="Bold"><b>B</b></button>
-        <button class="toolbar-btn" onclick="applyFormatting('italic')" title="Italic"><i>I</i></button>
-        <button class="toolbar-btn" onclick="applyFormatting('underline')" title="Underline"><u>U</u></button>
-        <button class="toolbar-btn" onclick="showColorPicker()" title="Text Color">🎨 Color</button>
-        <button class="toolbar-btn" onclick="showFontSize()" title="Font Size">📏 Size</button>
-        <div style="width:1px;background:var(--border);margin:0 8px;"></div>
         <button class="toolbar-btn" onclick="insertEmoji('😀')">😀</button>
         <button class="toolbar-btn" onclick="insertEmoji('😂')">😂</button>
         <button class="toolbar-btn" onclick="insertEmoji('❤️')">❤️</button>
